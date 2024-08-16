@@ -23,6 +23,7 @@ export const users = pgTable("users", {
   username: text("username").notNull().unique(),
   email: text("email").notNull().unique(),
   password: text("password").notNull(),
+  googleId: text("googleId"),
   status: userStatusEnum("status").default("offline").notNull(),
   lastActive: timestamp("last_active").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
