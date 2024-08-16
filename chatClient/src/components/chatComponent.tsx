@@ -6,6 +6,7 @@ import { Separator } from "../components/ui/separator";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
+import { UserButton } from "@clerk/clerk-react";
 
 const ChatComponent = () => {
   const [activeBadge, setActiveBadge] = useState("All");
@@ -21,10 +22,9 @@ const ChatComponent = () => {
       <div className="w-1/3 border-r flex flex-col">
         <Card className="flex-grow flex flex-col overflow-hidden">
           <div className="p-3 flex flex-row items-center">
-            <Avatar className="mr-2">
-              <AvatarImage src="https://github.com/shadcn.png" alt="@shadcn" />
-              <AvatarFallback>CN</AvatarFallback>
-            </Avatar>
+            <div className="mr-2 mt-2">
+              <UserButton />
+            </div>
             <div className="relative flex-grow">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
