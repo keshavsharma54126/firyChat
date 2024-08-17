@@ -15,7 +15,7 @@ import {
   NewMessage,
   NewConversation,
 } from "./schema";
-import { eq, and, or, asc } from "drizzle-orm";
+import { eq, and, or, asc, like } from "drizzle-orm";
 
 const app = express();
 const server = http.createServer(app);
@@ -125,6 +125,26 @@ app.post("/conversations", async (req, res) => {
   } catch (error) {
     console.error("Error creating conversation", error);
     res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.get("/getUser/:username", async (req, res) => {
+  const username = req.params.username;
+  try {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(like(users.username, `%${username}%`))
+      .execute();
+
+    if (user) {
+      res.status(200).json(user);
+    } else {
+      res.status(404).json({ message: "User not found" });
+    }
+  } catch (e) {
+    console.error("error while getting user with username", e);
+    res.status(400).json({ message: "error searching username" });
   }
 });
 

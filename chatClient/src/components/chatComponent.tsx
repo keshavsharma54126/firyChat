@@ -188,6 +188,23 @@ const ChatComponent = () => {
     },
     [conversationId]
   );
+  const handleSearch = async (username: string) => {
+    try {
+      if (username.trim() === "") {
+        getUsers();
+      } else {
+        username = username.trim();
+        const res = await axios.get(
+          `http://localhost:5000/getUser/${username}`
+        );
+        const userArray = [];
+        userArray.push(res.data);
+        setUsers(userArray);
+      }
+    } catch (e) {
+      console.error("erro while seraching", e);
+    }
+  };
 
   return (
     <div className="flex h-screen">
@@ -213,6 +230,9 @@ const ChatComponent = () => {
               </svg>
               <Input
                 placeholder="Search"
+                onChange={(e) => {
+                  handleSearch(e.target.value);
+                }}
                 className="pl-10 pr-4 shadow-md bg-gray-100 border border-gray-300 rounded-md py-2 focus:ring-0 focus:border-none"
               />
             </div>
