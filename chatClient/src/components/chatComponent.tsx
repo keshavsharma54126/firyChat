@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { ScrollArea } from "../components/ui/scroll-area";
@@ -8,7 +8,7 @@ import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { UserButton, useUser } from "@clerk/clerk-react";
 import axios from "axios";
-import io from "socket.io-client";
+import io, { Socket } from "socket.io-client";
 
 interface User {
   id: number;
@@ -18,19 +18,24 @@ interface User {
 }
 
 interface Message {
+  id: number;
   content: string;
-  sender: string;
+  senderId: number;
   recipientId: number;
+  conversationId: number;
+  createdAt: string;
 }
 
 const ChatComponent = () => {
   const [activeBadge, setActiveBadge] = useState("All");
   const [messages, setMessages] = useState<Message[]>([]);
-  const [message, setMessage] = useState("");
+  const [inputMessage, setInputMessage] = useState("");
   const [users, setUsers] = useState<User[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const { user, isLoaded } = useUser();
-  const socket = io("http://localhost:5000"); // Ensure this URL matches your server
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [conversationId, setConversationId] = useState<number | null>(null);
+  const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
     if (isLoaded && user) {
@@ -38,28 +43,34 @@ const ChatComponent = () => {
     }
     getUsers();
 
-    socket.on("newMessage", (msg: Message) => {
-      console.log("New message received:", msg); // Debugging
-      if (selectedUser && msg.recipientId === selectedUser.id) {
-        setMessages((prevMessages) => [...prevMessages, msg]);
-      }
+    socketRef.current = io("http://localhost:5000");
+
+    socketRef.current.on("loadMessages", (loadedMessages: Message[]) => {
+      setMessages(loadedMessages);
+    });
+
+    socketRef.current.on("newMessage", (newMessage: Message) => {
+      setMessages((prevMessages) => [...prevMessages, newMessage]);
     });
 
     return () => {
-      socket.disconnect(); // Cleanup on unmount
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
     };
-  }, [isLoaded, user, selectedUser]);
+  }, [isLoaded, user]);
 
   const synchronizeUserData = async (user: any) => {
     try {
-      console.log("Request sent");
-      console.log(user);
-      await axios.post("http://localhost:5000/signup", {
+      const res = await axios.post("http://localhost:5000/signup", {
         username: user.username,
         email: user.primaryEmailAddress?.emailAddress,
         googleId: user.externalAccounts?.[0].id,
         imageUrl: user.externalAccounts?.[0].imageUrl,
       });
+
+      setCurrentUser(res.data.user);
+      console.log("User synchronized:", res.data.user);
     } catch (e) {
       console.error("Error while adding user to database", e);
     }
@@ -68,24 +79,9 @@ const ChatComponent = () => {
   const getUsers = async () => {
     try {
       const res = await axios.get("http://localhost:5000/users");
-      console.log(res.data);
       setUsers(res.data);
     } catch (e) {
       console.error("Error while getting users", e);
-    }
-  };
-
-  const fetchMessages = async (recipientId: number) => {
-    try {
-      const res = await axios.get("http://localhost:5000/messages", {
-        params: {
-          recipientId,
-          senderId: user?.id,
-        },
-      });
-      setMessages(res.data);
-    } catch (e) {
-      console.error("Error fetching messages", e);
     }
   };
 
@@ -93,22 +89,44 @@ const ChatComponent = () => {
     setActiveBadge(badge);
   };
 
-  const handleUserClick = (user: User) => {
+  const handleUserClick = async (user: User) => {
     setSelectedUser(user);
-    fetchMessages(user.id);
+    try {
+      const res = await axios.post("http://localhost:5000/conversations", {
+        user1Id: currentUser?.id,
+        user2Id: user.id,
+      });
+      setConversationId(res.data.conversation.id);
+      if (socketRef.current) {
+        socketRef.current.emit("join", res.data.conversation.id);
+      }
+    } catch (e) {
+      console.error("Error while creating conversation", e);
+    }
   };
 
   const handleSendMessage = () => {
-    if (message.trim() !== "" && user && selectedUser) {
-      const newMessage: Message = {
-        content: message,
-        sender: user.username as string,
-        recipientId: selectedUser.id,
-      };
-      console.log("Sending message:", newMessage); // Debugging
-      socket.emit("sendMessage", newMessage);
-      setMessages((prevMessages) => [...prevMessages, newMessage]);
-      setMessage("");
+    if (
+      inputMessage.trim() === "" ||
+      !currentUser ||
+      !selectedUser ||
+      !conversationId
+    ) {
+      return;
+    }
+
+    const newMessage = {
+      content: inputMessage,
+      senderId: currentUser.id,
+      recipientId: selectedUser.id,
+      conversationId: conversationId,
+    };
+
+    if (socketRef.current?.connected) {
+      socketRef.current.emit("sendMessage", newMessage);
+      setInputMessage("");
+    } else {
+      console.error("Socket is not connected.");
     }
   };
 
@@ -194,12 +212,14 @@ const ChatComponent = () => {
             {messages.map((msg, index) => (
               <div
                 key={index}
-                className={`flex justify-${
-                  msg.sender === user?.username ? "end" : "start"
-                }`}>
+                className={`flex ${
+                  msg.senderId === currentUser?.id
+                    ? "justify-end"
+                    : "justify-start"
+                } mb-2`}>
                 <div
                   className={`bg-${
-                    msg.sender === user?.username
+                    msg.senderId === currentUser?.id
                       ? "[#f07055] text-white"
                       : "gray-100"
                   } p-3 rounded-md max-w-sm md:max-w-md lg:max-w-lg 2xl:max-w-2xl`}>
@@ -210,36 +230,23 @@ const ChatComponent = () => {
           </ScrollArea>
         </Card>
         <Separator />
-        <div className="relative p-4 flex">
-          <div className="flex-grow relative">
+        <Card className="border-none shadow-none flex-shrink-0">
+          <div className="flex items-center p-4">
             <Input
-              placeholder="Type a message..."
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
+              type="text"
+              placeholder="Type a message"
+              value={inputMessage}
+              onChange={(e) => setInputMessage(e.target.value)}
+              className="mr-2"
               onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
-              className="w-full bg-gray-100 border rounded-md pl-6 pr-4 py-2 focus:ring-0 focus:border-none"
             />
             <Button
-              variant="ghost"
               onClick={handleSendMessage}
-              className="absolute inset-y-0 right-0 p-3 flex items-center cursor-pointer bg-[#efd5d0] hover:bg-[#dcbbb6]"
-              aria-label="Send Message">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth="1.5"
-                stroke="currentColor"
-                className="size-6 text-[#f07055]">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5"
-                />
-              </svg>
+              className="bg-[#f07055] text-white">
+              Send
             </Button>
           </div>
-        </div>
+        </Card>
       </div>
     </div>
   );

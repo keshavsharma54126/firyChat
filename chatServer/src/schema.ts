@@ -20,7 +20,7 @@ export const mediaTypeEnum = pgEnum("media_type", ["image", "video"]);
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
-  username: text("username").notNull().unique(),
+  username: text("username").notNull(),
   email: text("email").notNull().unique(),
   googleId: text("googleId"),
   imageUrl: text("imageUrl"),
@@ -38,8 +38,18 @@ export const messages = pgTable("messages", {
     .references(() => users.id)
     .notNull(),
   content: text("content"),
+  conversationId: integer("conversationId")
+    .notNull()
+    .references(() => conversation.id),
   status: messageStatusEnum("status").default("sent").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const conversation = pgTable("conversation", {
+  id: serial("id").primaryKey(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  user1Id: integer("user1id").references(() => users.id),
+  user2Id: integer("user2id").references(() => users.id),
 });
 
 export const mediaUploads = pgTable("media_uploads", {
@@ -78,3 +88,6 @@ export type NewMediaUpload = InferInsertModel<typeof mediaUploads>;
 // Types for ReadReceipts
 export type ReadReceipt = InferSelectModel<typeof readReceipts>;
 export type NewReadReceipt = InferInsertModel<typeof readReceipts>;
+
+export type conversation = InferSelectModel<typeof conversation>;
+export type NewConversation = InferInsertModel<typeof conversation>;

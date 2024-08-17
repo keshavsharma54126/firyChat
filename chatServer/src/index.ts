@@ -5,40 +5,36 @@ import bodyParser from "body-parser";
 import cors from "cors";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { users, messages, User, Message, NewUser, NewMessage } from "./schema";
-import { and, eq, or } from "drizzle-orm";
+import {
+  users,
+  messages,
+  conversation,
+  User,
+  Message,
+  NewUser,
+  NewMessage,
+  NewConversation,
+} from "./schema";
+import { eq, and, or } from "drizzle-orm";
 
-// Initialize Express app and HTTP server
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: {
-    origin: "http://localhost:5173", // Update this to restrict access in production
-    methods: ["GET", "POST"],
-  },
+  cors: { origin: "*", methods: ["GET", "POST"] },
 });
 
-// Middleware
 app.use(cors());
 app.use(bodyParser.json());
 
-// PostgreSQL connection to Neon
 const pool = new Pool({
   connectionString:
     "postgresql://sharmakeshav54126:GNjecx3dHJf4@ep-steep-fire-63657628-pooler.us-east-2.aws.neon.tech/chatApp?sslmode=require",
   ssl: true,
-  connectionTimeoutMillis: 10000, // Increase connection timeout (10 seconds)
-  idleTimeoutMillis: 30000, // Increase idle timeout (30 seconds)
-  max: 20, // Increase max pool size if needed
-});
-
-pool.on("connect", () => {
-  console.log("Connected to the database");
+  // Increase max pool size if needed
 });
 
 const db = drizzle(pool);
 
-// Signup endpoint
 app.post("/signup", async (req, res) => {
   const { username, email, googleId, imageUrl } = req.body;
   try {
@@ -48,7 +44,7 @@ app.post("/signup", async (req, res) => {
       .where(eq(users.email, email))
       .execute();
     if (existingUser.length > 0) {
-      return res.status(400).json({ error: "User already exists" });
+      return res.status(200).json({ user: existingUser[0] });
     }
 
     const newUser: NewUser = {
@@ -71,7 +67,6 @@ app.post("/signup", async (req, res) => {
   }
 });
 
-// Fetch all users
 app.get("/users", async (req, res) => {
   try {
     const allUsers = await db.select().from(users).execute();
@@ -82,83 +77,76 @@ app.get("/users", async (req, res) => {
   }
 });
 
-// Fetch messages between users
-app.get("/messages", async (req, res) => {
-  const recipientId = parseInt(req.query.recipientId as string, 10);
-  const senderId = parseInt(req.query.senderId as string, 10);
-
+app.post("/conversations", async (req, res) => {
+  const { user1Id, user2Id } = req.body;
   try {
-    const allMessages = await db
+    const existingConversation = await db
       .select()
-      .from(messages)
+      .from(conversation)
       .where(
         or(
           and(
-            eq(messages.senderId, senderId),
-            eq(messages.recipientId, recipientId)
+            eq(conversation.user1Id, user1Id),
+            eq(conversation.user2Id, user2Id)
           ),
           and(
-            eq(messages.senderId, recipientId),
-            eq(messages.recipientId, senderId)
+            eq(conversation.user1Id, user2Id),
+            eq(conversation.user2Id, user1Id)
           )
         )
       )
       .execute();
-    res.status(200).json(allMessages);
+
+    if (existingConversation.length > 0) {
+      return res.status(200).json({ conversation: existingConversation[0] });
+    }
+
+    const newConversation: NewConversation = { user1Id, user2Id };
+    const [insertedConversation] = await db
+      .insert(conversation)
+      .values(newConversation)
+      .returning();
+    res.status(201).json({ conversation: insertedConversation });
   } catch (error) {
-    console.error("Error fetching messages", error);
+    console.error("Error creating conversation", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-// Socket.io events
 io.on("connection", (socket) => {
   console.log("A user connected");
 
-  socket.on(
-    "sendMessage",
-    async (msg: { content: string; sender: string; recipientId: number }) => {
-      try {
-        // Fetch sender details
-        const [senderUser] = await db
-          .select()
-          .from(users)
-          .where(eq(users.username, msg.sender))
-          .execute();
+  socket.on("join", async (conversationId: number) => {
+    socket.join(conversationId.toString());
+    const conversationMessages = await db
+      .select()
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .execute();
+    socket.emit("loadMessages", conversationMessages);
+  });
 
-        if (senderUser) {
-          const newMessage: NewMessage = {
-            senderId: senderUser.id,
-            recipientId: msg.recipientId,
-            content: msg.content,
-            status: "sent",
-            createdAt: new Date(),
-          };
-
-          // Insert message into the database
-          const [insertedMessage] = await db
-            .insert(messages)
-            .values(newMessage)
-            .returning();
-
-          // Emit the new message to the recipient
-          io.emit("newMessage", insertedMessage);
-        } else {
-          console.error("Sender not found");
-        }
-      } catch (error) {
-        console.error("Error while saving message to database", error);
-      }
+  socket.on("sendMessage", async (message: NewMessage) => {
+    try {
+      const [insertedMessage] = await db
+        .insert(messages)
+        .values(message)
+        .returning();
+      io.to(message.conversationId.toString()).emit(
+        "newMessage",
+        insertedMessage
+      );
+    } catch (error) {
+      console.error("Error saving message", error);
     }
-  );
+  });
 
   socket.on("disconnect", () => {
     console.log("User disconnected");
   });
 });
 
-// Start the server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
