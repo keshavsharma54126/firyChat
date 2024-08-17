@@ -15,7 +15,7 @@ import {
   NewMessage,
   NewConversation,
 } from "./schema";
-import { eq, and, or } from "drizzle-orm";
+import { eq, and, or, asc } from "drizzle-orm";
 
 const app = express();
 const server = http.createServer(app);
@@ -30,7 +30,7 @@ const pool = new Pool({
   connectionString:
     "postgresql://sharmakeshav54126:GNjecx3dHJf4@ep-steep-fire-63657628-pooler.us-east-2.aws.neon.tech/chatApp?sslmode=require",
   ssl: true,
-  connectionTimeoutMillis: 5000,
+  connectionTimeoutMillis: 10000,
 });
 
 const db = drizzle(pool);
@@ -147,6 +147,7 @@ io.on("connection", (socket) => {
       .select()
       .from(messages)
       .where(eq(messages.conversationId, conversationId))
+      .orderBy(asc(messages.createdAt))
       .execute();
     socket.emit("loadMessages", conversationMessages);
   });
@@ -157,12 +158,44 @@ io.on("connection", (socket) => {
         .insert(messages)
         .values(message)
         .returning();
+
       io.to(message.conversationId.toString()).emit(
         "newMessage",
         insertedMessage
       );
+      io.to(message.conversationId.toString()).emit(
+        "messageStatus",
+        "delivered"
+      );
+
+      io.to(message.conversationId.toString()).emit("messageStatus", {
+        messageId: insertedMessage.id,
+        status: "sent",
+      });
+      await db
+        .update(messages)
+        .set({ status: "delivered" })
+        .where(eq(messages.id, insertedMessage.id))
+        .execute();
+
+      io.to;
     } catch (error) {
       console.error("Error saving message", error);
+    }
+  });
+  socket.on("markAsRead", async ({ messageId, conversationId }) => {
+    try {
+      await db
+        .update(messages)
+        .set({ status: "read" })
+        .where(eq(messages.id, messageId))
+        .execute();
+      io.to(conversationId.toString()).emit("messageStatus", {
+        messageId,
+        status: "read",
+      });
+    } catch (e) {
+      console.error("error while markingmessage as read", e);
     }
   });
 

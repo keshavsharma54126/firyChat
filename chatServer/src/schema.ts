@@ -66,17 +66,6 @@ export const mediaUploads = pgTable("media_uploads", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const readReceipts = pgTable("read_receipts", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id")
-    .references(() => users.id)
-    .notNull(),
-  messageId: integer("message_id")
-    .references(() => messages.id)
-    .notNull(),
-  readAt: timestamp("read_at").notNull(),
-});
-
 // Types for Users
 export type User = InferSelectModel<typeof users>;
 export type NewUser = InferInsertModel<typeof users>;
@@ -88,10 +77,6 @@ export type NewMessage = InferInsertModel<typeof messages>;
 // Types for MediaUploads
 export type MediaUpload = InferSelectModel<typeof mediaUploads>;
 export type NewMediaUpload = InferInsertModel<typeof mediaUploads>;
-
-// Types for ReadReceipts
-export type ReadReceipt = InferSelectModel<typeof readReceipts>;
-export type NewReadReceipt = InferInsertModel<typeof readReceipts>;
 
 export type conversation = InferSelectModel<typeof conversation>;
 export type NewConversation = InferInsertModel<typeof conversation>;

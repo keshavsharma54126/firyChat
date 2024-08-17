@@ -25,12 +25,16 @@ interface Message {
   recipientId: number;
   conversationId: number;
   createdAt: string;
+  status: string;
 }
 
 const ChatComponent = () => {
   const [activeBadge, setActiveBadge] = useState("All");
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
+  const [messageStatuses, setMessageStatuses] = useState<{
+    [key: number]: string;
+  }>({});
   const [users, setUsers] = useState<User[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const { user, isLoaded } = useUser();
@@ -57,6 +61,10 @@ const ChatComponent = () => {
 
     socketRef.current.on("newMessage", (newMessage: Message) => {
       setMessages((prevMessages) => [...prevMessages, newMessage]);
+    });
+
+    socketRef.current.on("messageStatus", (messageId, status) => {
+      setMessageStatuses((prev) => ({ ...prev, [messageId]: status }));
     });
 
     socketRef.current.on("statusUpdate", ({ userId, status }) => {
@@ -172,6 +180,15 @@ const ChatComponent = () => {
     }
   }, [currentUser, selectedUser]);
 
+  const markMessageAsRead = useCallback(
+    (messageId: number) => {
+      if (socketRef.current && conversationId) {
+        socketRef.current.emit("markAsRead", { messageId, conversationId });
+      }
+    },
+    [conversationId]
+  );
+
   return (
     <div className="flex h-screen">
       <div className="w-1/3 border-r flex flex-col">
@@ -260,21 +277,38 @@ const ChatComponent = () => {
 
           <div ref={scrollRef} className="flex-grow p-4 overflow-y-auto border">
             {messages.map((msg, index) => (
-              <div
-                key={index}
-                className={`flex ${
-                  msg.senderId === currentUser?.id
-                    ? "justify-end"
-                    : "justify-start"
-                } mb-2`}>
+              <div className="flex flex-col">
                 <div
-                  className={`bg-${
+                  key={index}
+                  onMouseEnter={() => {
+                    if (msg.senderId !== currentUser?.id) {
+                      markMessageAsRead(msg.id);
+                    }
+                  }}
+                  className={`flex ${
                     msg.senderId === currentUser?.id
-                      ? "[#f07055] text-white"
-                      : "gray-100"
-                  } p-3 rounded-md max-w-sm md:max-w-md lg:max-w-lg 2xl:max-w-2xl`}>
-                  {msg.content}
+                      ? "justify-end"
+                      : "justify-start"
+                  } mb-2`}>
+                  <div
+                    className={`bg-${
+                      msg.senderId === currentUser?.id
+                        ? "[#f07055] text-white"
+                        : "gray-100"
+                    } p-3 rounded-md max-w-sm md:max-w-md lg:max-w-lg 2xl:max-w-2xl`}>
+                    {msg.content}
+                  </div>
                 </div>
+                {msg.senderId === currentUser?.id && (
+                  <div
+                    className={`flex ${
+                      msg.senderId === currentUser?.id
+                        ? "justify-end"
+                        : "justify-start"
+                    } mb-6`}>
+                    {messageStatuses[msg.id] || msg.status}
+                  </div>
+                )}
               </div>
             ))}
           </div>
