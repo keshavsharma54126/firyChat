@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { ScrollArea } from "../components/ui/scroll-area";
@@ -6,15 +6,110 @@ import { Separator } from "../components/ui/separator";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { UserButton } from "@clerk/clerk-react";
+import { UserButton, useUser } from "@clerk/clerk-react";
+import axios from "axios";
+import io from "socket.io-client";
+
+interface User {
+  id: number;
+  username: string;
+  email: string;
+  imageUrl: string;
+}
+
+interface Message {
+  content: string;
+  sender: string;
+  recipientId: number;
+}
 
 const ChatComponent = () => {
   const [activeBadge, setActiveBadge] = useState("All");
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [message, setMessage] = useState("");
+  const [users, setUsers] = useState<User[]>([]);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const { user, isLoaded } = useUser();
+  const socket = io("http://localhost:5000"); // Ensure this URL matches your server
 
-  const badges = ["All", "Unread", "Archived", "Blocked"];
+  useEffect(() => {
+    if (isLoaded && user) {
+      synchronizeUserData(user);
+    }
+    getUsers();
 
-  const handleBadgeClick = (badge: any) => {
+    socket.on("newMessage", (msg: Message) => {
+      console.log("New message received:", msg); // Debugging
+      if (selectedUser && msg.recipientId === selectedUser.id) {
+        setMessages((prevMessages) => [...prevMessages, msg]);
+      }
+    });
+
+    return () => {
+      socket.disconnect(); // Cleanup on unmount
+    };
+  }, [isLoaded, user, selectedUser]);
+
+  const synchronizeUserData = async (user: any) => {
+    try {
+      console.log("Request sent");
+      console.log(user);
+      await axios.post("http://localhost:5000/signup", {
+        username: user.username,
+        email: user.primaryEmailAddress?.emailAddress,
+        googleId: user.externalAccounts?.[0].id,
+        imageUrl: user.externalAccounts?.[0].imageUrl,
+      });
+    } catch (e) {
+      console.error("Error while adding user to database", e);
+    }
+  };
+
+  const getUsers = async () => {
+    try {
+      const res = await axios.get("http://localhost:5000/users");
+      console.log(res.data);
+      setUsers(res.data);
+    } catch (e) {
+      console.error("Error while getting users", e);
+    }
+  };
+
+  const fetchMessages = async (recipientId: number) => {
+    try {
+      const res = await axios.get("http://localhost:5000/messages", {
+        params: {
+          recipientId,
+          senderId: user?.id,
+        },
+      });
+      setMessages(res.data);
+    } catch (e) {
+      console.error("Error fetching messages", e);
+    }
+  };
+
+  const handleBadgeClick = (badge: string) => {
     setActiveBadge(badge);
+  };
+
+  const handleUserClick = (user: User) => {
+    setSelectedUser(user);
+    fetchMessages(user.id);
+  };
+
+  const handleSendMessage = () => {
+    if (message.trim() !== "" && user && selectedUser) {
+      const newMessage: Message = {
+        content: message,
+        sender: user.username as string,
+        recipientId: selectedUser.id,
+      };
+      console.log("Sending message:", newMessage); // Debugging
+      socket.emit("sendMessage", newMessage);
+      setMessages((prevMessages) => [...prevMessages, newMessage]);
+      setMessage("");
+    }
   };
 
   return (
@@ -41,13 +136,13 @@ const ChatComponent = () => {
               </svg>
               <Input
                 placeholder="Search"
-                className="pl-10 pr-4 shadow-md bg-gray-100 border border-gray-300 rounded-md py-2 focus:ring-0 focus:border-none "
+                className="pl-10 pr-4 shadow-md bg-gray-100 border border-gray-300 rounded-md py-2 focus:ring-0 focus:border-none"
               />
             </div>
           </div>
           <Separator />
           <div className="p-3 flex items-center gap-2">
-            {badges.map((badge) => (
+            {["All", "Unread", "Archived", "Blocked"].map((badge) => (
               <Badge
                 key={badge}
                 variant={activeBadge === badge ? "main" : "second"}
@@ -59,25 +154,20 @@ const ChatComponent = () => {
           </div>
           <Separator />
           <ScrollArea className="flex-grow p-4 overflow-y-auto">
-            {/* Add the list of conversations here */}
-            <div className="flex items-center gap-2 mb-4">
-              <Avatar className="mr-2">
-                <AvatarImage
-                  src="https://github.com/shadcn.png"
-                  alt="@shadcn"
-                />
-                <AvatarFallback>CN</AvatarFallback>
-              </Avatar>
-              <div>
-                <div className="font-bold">Kristine</div>
-                <div className="text-sm text-gray-500">
-                  4th Hello, I wanted to know more about the product design
-                  position opened at Atlassian.
+            {users.map((u) => (
+              <div
+                key={u.id}
+                className="flex items-center gap-2 mb-4 cursor-pointer"
+                onClick={() => handleUserClick(u)}>
+                <Avatar className="mr-2">
+                  <AvatarImage src={u.imageUrl} alt={u.username[0]} />
+                  <AvatarFallback>{u.username[0]}</AvatarFallback>
+                </Avatar>
+                <div>
+                  <div className="font-bold">{u.username}</div>
                 </div>
               </div>
-            </div>
-            <Separator />
-            {/* Repeat above block for each conversation */}
+            ))}
           </ScrollArea>
         </Card>
       </div>
@@ -85,69 +175,38 @@ const ChatComponent = () => {
         <Card className="flex-grow flex flex-col overflow-hidden">
           <div className="flex items-center p-3 border-b bg-gray-100">
             <Avatar className="mr-2">
-              <AvatarImage src="https://github.com/shadcn.png" alt="@shadcn" />
-              <AvatarFallback>CN</AvatarFallback>
+              <AvatarImage
+                src={selectedUser?.imageUrl || "https://github.com/shadcn.png"}
+                alt={selectedUser?.username || "User"}
+              />
+              <AvatarFallback>
+                {selectedUser?.username?.[0] || "U"}
+              </AvatarFallback>
             </Avatar>
             <div>
-              <div className="font-bold">Kristine</div>
+              <div className="font-bold">
+                {selectedUser?.username || "Select a user"}
+              </div>
               <div className="text-sm text-gray-500">Typing...</div>
             </div>
           </div>
           <ScrollArea className="flex-grow p-4 overflow-y-auto">
-            {/* Add the chat messages here */}
-            <div className="mb-4">
-              <div className="bg-gray-100 p-3 rounded-md mb-2">
-                Hello, I wanted to know more about the product design position
-                opened at Atlassian.
+            {messages.map((msg, index) => (
+              <div
+                key={index}
+                className={`flex justify-${
+                  msg.sender === user?.username ? "end" : "start"
+                }`}>
+                <div
+                  className={`bg-${
+                    msg.sender === user?.username
+                      ? "[#f07055] text-white"
+                      : "gray-100"
+                  } p-3 rounded-md max-w-sm md:max-w-md lg:max-w-lg 2xl:max-w-2xl`}>
+                  {msg.content}
+                </div>
               </div>
-              <div className="bg-[#f07055] text-white p-3 rounded-md self-end mb-2">
-                Sure, tell us. What do you wanna know?
-              </div>
-              <div className="bg-gray-100 p-3 rounded-md mb-2">
-                Take this part of your letter seriously because it's likely one
-                of your first genuine opportunities to make a personal, positive
-                impression on a prospective employer. You want your words to
-                invite them to keep reading and to convey exactly why you're the
-                best choice for their open position. Review your language to
-                ensure it's concise and informative. If you're applying to
-                multiple positions, take great care to edit your letter so that
-                the first paragraph is personal and relevant to the exact
-                position you want.
-              </div>
-              <div className="bg-[#f07055] text-white p-3 rounded-md self-end mb-2">
-                You've a good folio
-              </div>
-              <div className="bg-[#f07055] text-white p-3 rounded-md self-end">
-                However we're looking for someone with a little more experience!
-              </div>
-              <div className="text-sm text-gray-500 self-end mt-2">3 days</div>
-              <div className="bg-gray-100 p-3 rounded-md mb-2">
-                Hello, I wanted to know more about the product design position
-                opened at Atlassian.
-              </div>
-              <div className="bg-[#f07055] text-white p-3 rounded-md self-end mb-2">
-                Sure, tell us. What do you wanna know?
-              </div>
-              <div className="bg-gray-100 p-3 rounded-md mb-2">
-                Take this part of your letter seriously because it's likely one
-                of your first genuine opportunities to make a personal, positive
-                impression on a prospective employer. You want your words to
-                invite them to keep reading and to convey exactly why you're the
-                best choice for their open position. Review your language to
-                ensure it's concise and informative. If you're applying to
-                multiple positions, take great care to edit your letter so that
-                the first paragraph is personal and relevant to the exact
-                position you want.
-              </div>
-              <div className="bg-[#f07055] text-white p-3 rounded-md self-end mb-2">
-                You've a good folio
-              </div>
-              <div className="bg-[#f07055] text-white p-3 rounded-md self-end">
-                However we're looking for someone with a little more experience!
-              </div>
-              <div className="text-sm text-gray-500 self-end mt-2">3 days</div>
-            </div>
-            {/* Repeat above block for each chat message */}
+            ))}
           </ScrollArea>
         </Card>
         <Separator />
@@ -155,12 +214,16 @@ const ChatComponent = () => {
           <div className="flex-grow relative">
             <Input
               placeholder="Type a message..."
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
               className="w-full bg-gray-100 border rounded-md pl-6 pr-4 py-2 focus:ring-0 focus:border-none"
             />
             <Button
               variant="ghost"
+              onClick={handleSendMessage}
               className="absolute inset-y-0 right-0 p-3 flex items-center cursor-pointer bg-[#efd5d0] hover:bg-[#dcbbb6]"
-              aria-label="Add Multimedia">
+              aria-label="Send Message">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
@@ -172,24 +235,6 @@ const ChatComponent = () => {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5"
-                />
-              </svg>
-            </Button>
-            <Button
-              variant="ghost"
-              className="absolute inset-y-0 right-12 p-3 flex items-center cursor-pointer"
-              aria-label="Add Multimedia">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth="1.5"
-                stroke="currentColor"
-                className="size-6 text-[#f07055] hover:text-[#f54d2c] hover:mr-1 hover:mb-1">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13"
                 />
               </svg>
             </Button>
