@@ -20,7 +20,7 @@ import { eq, and, or } from "drizzle-orm";
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] },
+  cors: { origin: "http://localhost:5173", methods: ["GET", "POST"] },
 });
 
 app.use(cors());
@@ -30,10 +30,25 @@ const pool = new Pool({
   connectionString:
     "postgresql://sharmakeshav54126:GNjecx3dHJf4@ep-steep-fire-63657628-pooler.us-east-2.aws.neon.tech/chatApp?sslmode=require",
   ssl: true,
-  // Increase max pool size if needed
+  connectionTimeoutMillis: 5000,
 });
 
 const db = drizzle(pool);
+const userStatus: { [key: number]: string } = {};
+
+const updateUserStatus = async (userId: number, status: any) => {
+  try {
+    userStatus[userId] = status;
+    await db
+      .update(users)
+      .set({ status })
+      .where(eq(users.id, userId))
+      .execute();
+    io.emit("statusUpdate", { userId, status });
+  } catch (error) {
+    console.error("Error updating user status:", error);
+  }
+};
 
 app.post("/signup", async (req, res) => {
   const { username, email, googleId, imageUrl } = req.body;
@@ -73,7 +88,7 @@ app.get("/users", async (req, res) => {
     res.status(200).json(allUsers);
   } catch (error) {
     console.error("Error fetching users", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    res.status(500).json({ error: "Database error, please try again later" });
   }
 });
 
@@ -115,6 +130,16 @@ app.post("/conversations", async (req, res) => {
 
 io.on("connection", (socket) => {
   console.log("A user connected");
+  let userId: number | null = null;
+
+  socket.on("userConnected", async (user: { id: number }) => {
+    if (typeof user.id === "number") {
+      userId = user.id;
+      await updateUserStatus(userId, "online");
+    } else {
+      console.error("Invalid user ID:", user.id);
+    }
+  });
 
   socket.on("join", async (conversationId: number) => {
     socket.join(conversationId.toString());
@@ -141,8 +166,26 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("disconnect", () => {
+  socket.on("typing", async (data: { userId: number; recipientId: number }) => {
+    await updateUserStatus(data.userId, "typing");
+    socket.to(data.recipientId.toString()).emit("userTyping", data.userId);
+  });
+
+  socket.on(
+    "stopTyping",
+    async (data: { userId: number; recipientId: number }) => {
+      await updateUserStatus(data.userId, "online");
+      socket
+        .to(data.recipientId.toString())
+        .emit("userStopTyping", data.userId);
+    }
+  );
+
+  socket.on("disconnect", async () => {
     console.log("User disconnected");
+    if (userId) {
+      await updateUserStatus(userId, "offline");
+    }
   });
 });
 

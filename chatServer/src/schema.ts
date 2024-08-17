@@ -10,7 +10,11 @@ import {
 import { InferInsertModel, InferSelectModel } from "drizzle-orm";
 
 // Enums
-export const userStatusEnum = pgEnum("user_status", ["online", "offline"]);
+export const userStatusEnum = pgEnum("user_status", [
+  "online",
+  "offline",
+  "typing",
+]);
 export const messageStatusEnum = pgEnum("message_status", [
   "sent",
   "delivered",

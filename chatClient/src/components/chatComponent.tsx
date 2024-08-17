@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { ScrollArea } from "../components/ui/scroll-area";
@@ -15,6 +15,7 @@ interface User {
   username: string;
   email: string;
   imageUrl: string;
+  status: string;
 }
 
 interface Message {
@@ -37,6 +38,10 @@ const ChatComponent = () => {
   const [conversationId, setConversationId] = useState<number | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [userStatuses, setUserStatuses] = useState<{ [key: number]: string }>(
+    {}
+  );
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (isLoaded && user) {
@@ -54,19 +59,28 @@ const ChatComponent = () => {
       setMessages((prevMessages) => [...prevMessages, newMessage]);
     });
 
+    socketRef.current.on("statusUpdate", ({ userId, status }) => {
+      setUserStatuses((prev) => ({ ...prev, [userId]: status }));
+    });
+
     return () => {
       if (socketRef.current) {
-        console.log(scrollRef.current);
         socketRef.current.disconnect();
       }
     };
-  }, [isLoaded, user]);
+  }, [isLoaded, user, selectedUser]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, selectedUser]);
+
+  useEffect(() => {
+    if (socketRef.current && currentUser) {
+      socketRef.current.emit("userConnected", { id: currentUser.id });
+    }
+  }, [currentUser]);
 
   const synchronizeUserData = async (user: any) => {
     try {
@@ -138,6 +152,26 @@ const ChatComponent = () => {
     }
   };
 
+  const handleTyping = useCallback(() => {
+    if (socketRef.current && currentUser && selectedUser) {
+      socketRef.current.emit("typing", {
+        userId: currentUser.id,
+        recipientId: selectedUser.id,
+      });
+
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+
+      typingTimeoutRef.current = setTimeout(() => {
+        socketRef.current?.emit("stopTyping", {
+          userId: currentUser.id,
+          recipientId: selectedUser.id,
+        });
+      }, 1000);
+    }
+  }, [currentUser, selectedUser]);
+
   return (
     <div className="flex h-screen">
       <div className="w-1/3 border-r flex flex-col">
@@ -181,17 +215,22 @@ const ChatComponent = () => {
           <Separator />
           <ScrollArea className="flex-grow p-4 overflow-y-auto">
             {users.map((u) => (
-              <div
-                key={u.id}
-                className="flex items-center gap-2 mb-4 cursor-pointer"
-                onClick={() => handleUserClick(u)}>
-                <Avatar className="mr-2">
-                  <AvatarImage src={u.imageUrl} alt={u.username[0]} />
-                  <AvatarFallback>{u.username[0]}</AvatarFallback>
-                </Avatar>
-                <div>
-                  <div className="font-bold">{u.username}</div>
+              <div key={u.id}>
+                <div
+                  className="flex items-center gap-2 mb-4 cursor-pointer mt-3"
+                  onClick={() => handleUserClick(u)}>
+                  <Avatar className="mr-2">
+                    <AvatarImage src={u.imageUrl} alt={u.username[0]} />
+                    <AvatarFallback>{u.username[0]}</AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <div className="font-bold">{u.username}</div>
+                    <div className="text-sm text-gray-500">
+                      {userStatuses[u.id] || "offline"}
+                    </div>
+                  </div>
                 </div>
+                <Separator />
               </div>
             ))}
           </ScrollArea>
@@ -213,7 +252,9 @@ const ChatComponent = () => {
               <div className="font-bold">
                 {selectedUser?.username || "Select a user"}
               </div>
-              <div className="text-sm text-gray-500">Typing...</div>
+              <div className="text-sm text-gray-500">
+                {userStatuses[selectedUser?.id || 0] || "offline"}
+              </div>
             </div>
           </div>
 
@@ -245,7 +286,10 @@ const ChatComponent = () => {
               type="text"
               placeholder="Type a message"
               value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
+              onChange={(e) => {
+                setInputMessage(e.target.value);
+                handleTyping();
+              }}
               className="mr-2"
               onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
             />
