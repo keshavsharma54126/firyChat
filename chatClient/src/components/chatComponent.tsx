@@ -36,6 +36,7 @@ const ChatComponent = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [conversationId, setConversationId] = useState<number | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (isLoaded && user) {
@@ -55,10 +56,17 @@ const ChatComponent = () => {
 
     return () => {
       if (socketRef.current) {
+        console.log(scrollRef.current);
         socketRef.current.disconnect();
       }
     };
   }, [isLoaded, user]);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, selectedUser]);
 
   const synchronizeUserData = async (user: any) => {
     try {
@@ -208,7 +216,8 @@ const ChatComponent = () => {
               <div className="text-sm text-gray-500">Typing...</div>
             </div>
           </div>
-          <ScrollArea className="flex-grow p-4 overflow-y-auto">
+
+          <div ref={scrollRef} className="flex-grow p-4 overflow-y-auto border">
             {messages.map((msg, index) => (
               <div
                 key={index}
@@ -227,7 +236,7 @@ const ChatComponent = () => {
                 </div>
               </div>
             ))}
-          </ScrollArea>
+          </div>
         </Card>
         <Separator />
         <Card className="border-none shadow-none flex-shrink-0">
