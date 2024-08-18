@@ -93,7 +93,7 @@ const ChatComponent = () => {
     if (socketRef.current && currentUser) {
       socketRef.current.emit("userConnected", { id: currentUser.id });
     }
-  }, [currentUser]);
+  }, [currentUser, messages]);
 
   const synchronizeUserData = async (user: any) => {
     try {
@@ -404,6 +404,8 @@ const ChatComponent = () => {
                           src={msg.mediaUrl}
                           alt="Media"
                           className="sm:max-w-sm lg:max-w-md h-auto"
+                          loading="lazy"
+                          onLoad={() => console.log("image loaded")}
                         />
                       ) : getFileTypeFromUrl(msg.mediaUrl) === "video" ? (
                         <video

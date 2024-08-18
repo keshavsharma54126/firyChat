@@ -40,8 +40,7 @@ app.use(
 );
 
 const pool = new Pool({
-  connectionString:
-    "postgresql://sharmakeshav54126:GNjecx3dHJf4@ep-steep-fire-63657628-pooler.us-east-2.aws.neon.tech/chatApp?sslmode=require",
+  connectionString: process.env.DATABASE_URL,
   ssl: true,
   connectionTimeoutMillis: 10000,
 });
