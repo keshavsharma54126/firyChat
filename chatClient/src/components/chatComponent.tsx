@@ -16,6 +16,9 @@ interface User {
   email: string;
   imageUrl: string;
   status: string;
+  lastMessage?: string;
+  lastMessageTime?: string;
+  unreadCount?: number;
 }
 
 interface Message {
@@ -115,10 +118,6 @@ const ChatComponent = () => {
     }
   };
 
-  const handleBadgeClick = (badge: string) => {
-    setActiveBadge(badge);
-  };
-
   const handleUserClick = async (user: User) => {
     setSelectedUser(user);
     try {
@@ -184,6 +183,7 @@ const ChatComponent = () => {
     (messageId: number) => {
       if (socketRef.current && conversationId) {
         socketRef.current.emit("markAsRead", { messageId, conversationId });
+        setMessageStatuses((prev) => ({ ...prev, [messageId]: "read" }));
       }
     },
     [conversationId]
@@ -204,6 +204,37 @@ const ChatComponent = () => {
     } catch (e) {
       console.error("erro while seraching", e);
     }
+  };
+  const handleBadgeClick = async (badge: string) => {
+    setActiveBadge(badge);
+
+    if (badge === "Unread" && currentUser) {
+      try {
+        const res = await axios.get(
+          `http://localhost:5000/unreadusers/${currentUser.id}`
+        );
+        const unreadConversations = res.data;
+
+        // Update the users state with unread conversations
+        setUsers(
+          unreadConversations.map((conv: any) => ({
+            id: conv.otherUserId,
+            username: conv.otherUsername,
+            imageUrl: conv.otherUserImageUrl,
+            lastMessage: conv.lastMessageContent,
+            lastMessageTime: conv.lastMessageTime,
+            unreadCount: conv.unreadCount,
+          }))
+        );
+      } catch (error) {
+        console.error("Error fetching unread conversations:", error);
+        // Optionally, you can show an error message to the user
+      }
+    } else if (badge === "All") {
+      // Fetch all users again
+      getUsers();
+    }
+    // Add logic for "Archived" and "Blocked" if needed
   };
 
   return (
@@ -297,9 +328,8 @@ const ChatComponent = () => {
 
           <div ref={scrollRef} className="flex-grow p-4 overflow-y-auto border">
             {messages.map((msg, index) => (
-              <div className="flex flex-col">
+              <div key={index} className="flex flex-col">
                 <div
-                  key={index}
                   onMouseEnter={() => {
                     if (msg.senderId !== currentUser?.id) {
                       markMessageAsRead(msg.id);
@@ -320,12 +350,7 @@ const ChatComponent = () => {
                   </div>
                 </div>
                 {msg.senderId === currentUser?.id && (
-                  <div
-                    className={`flex ${
-                      msg.senderId === currentUser?.id
-                        ? "justify-end"
-                        : "justify-start"
-                    } mb-6`}>
+                  <div className={`flex justify-end mb-6`}>
                     {messageStatuses[msg.id] || msg.status}
                   </div>
                 )}

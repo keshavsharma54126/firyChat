@@ -15,7 +15,7 @@ import {
   NewMessage,
   NewConversation,
 } from "./schema";
-import { eq, and, or, asc, like } from "drizzle-orm";
+import { eq, and, or, asc, like, sql, desc } from "drizzle-orm";
 
 const app = express();
 const server = http.createServer(app);
@@ -145,6 +145,57 @@ app.get("/getUser/:username", async (req, res) => {
   } catch (e) {
     console.error("error while getting user with username", e);
     res.status(400).json({ message: "error searching username" });
+  }
+});
+
+app.get("/unreadusers/:userId", async (req, res) => {
+  const userId = parseInt(req.params.userId);
+
+  try {
+    const unreadConversations = await db
+      .select({
+        conversationId: conversation.id,
+        otherUserId: sql`CASE 
+          WHEN ${conversation.user1Id} = ${userId} THEN ${conversation.user2Id}
+          ELSE ${conversation.user1Id}
+        END`,
+        otherUsername: users.username,
+        otherUserImageUrl: users.imageUrl,
+        lastMessageContent: messages.content,
+        lastMessageTime: messages.createdAt,
+        unreadCount:
+          sql`COUNT(CASE WHEN ${messages.status} != 'read' AND ${messages.recipientId} = ${userId} THEN 1 END)`.as(
+            "unreadCount"
+          ),
+      })
+      .from(conversation)
+      .innerJoin(messages, eq(conversation.id, messages.conversationId))
+      .innerJoin(
+        users,
+        sql`CASE 
+        WHEN ${conversation.user1Id} = ${userId} THEN ${conversation.user2Id} = ${users.id}
+        ELSE ${conversation.user1Id} = ${users.id}
+      END`
+      )
+      .where(
+        and(
+          or(
+            eq(conversation.user1Id, userId),
+            eq(conversation.user2Id, userId)
+          ),
+          or(eq(messages.status, "delivered"), eq(messages.status, "sent"))
+        )
+      )
+      .groupBy(conversation.id, users.id, messages.id)
+      .having(
+        sql`COUNT(CASE WHEN ${messages.status} != 'read' AND ${messages.recipientId} = ${userId} THEN 1 END) > 0`
+      )
+      .orderBy(desc(messages.createdAt));
+
+    res.json(unreadConversations);
+  } catch (error) {
+    console.error("Error fetching unread conversations:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
