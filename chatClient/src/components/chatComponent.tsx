@@ -29,6 +29,7 @@ interface Message {
   conversationId: number;
   createdAt: string;
   status: string;
+  mediaUrl: string;
 }
 
 const ChatComponent = () => {
@@ -49,6 +50,7 @@ const ChatComponent = () => {
     {}
   );
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const inputMediaRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (isLoaded && user) {
@@ -236,6 +238,61 @@ const ChatComponent = () => {
     }
     // Add logic for "Archived" and "Blocked" if needed
   };
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Check if the file is an image or video
+      if (!file.type.match("image.*") && !file.type.match("video.*")) {
+        console.error("Only images and videos are allowed");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("senderId", String(currentUser?.id));
+      formData.append("recipientId", String(selectedUser?.id));
+      formData.append("conversationId", String(conversationId));
+
+      try {
+        const res = await axios.post(
+          "http://localhost:5000/upload-message",
+          formData,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+          }
+        );
+
+        if (inputMediaRef.current) {
+          (inputMediaRef.current as HTMLInputElement).value = "";
+        }
+      } catch (e) {
+        console.error("Error while uploading file", e);
+      }
+    }
+  };
+  const getFileTypeFromUrl = (url: string): "image" | "video" | "unknown" => {
+    // Check if the URL contains a file extension
+    const extension = url.split(".").pop()?.toLowerCase();
+
+    if (!extension) {
+      return "unknown";
+    }
+
+    if (["jpg", "jpeg", "png", "gif", "webp"].includes(extension)) {
+      return "image";
+    } else if (["mp4", "webm", "ogg"].includes(extension)) {
+      return "video";
+    }
+
+    return "unknown";
+  };
+  const handleFileClick = () => {
+    if (inputMediaRef.current) {
+      inputMediaRef.current.click();
+    }
+  };
 
   return (
     <div className="flex h-screen">
@@ -340,14 +397,36 @@ const ChatComponent = () => {
                       ? "justify-end"
                       : "justify-start"
                   } mb-2`}>
-                  <div
-                    className={`bg-${
-                      msg.senderId === currentUser?.id
-                        ? "[#f07055] text-white"
-                        : "gray-100"
-                    } p-3 rounded-md max-w-sm md:max-w-md lg:max-w-lg 2xl:max-w-2xl`}>
-                    {msg.content}
-                  </div>
+                  {msg.mediaUrl ? (
+                    <div>
+                      {getFileTypeFromUrl(msg.mediaUrl) === "image" ? (
+                        <img
+                          src={msg.mediaUrl}
+                          alt="Media"
+                          className="sm:max-w-sm lg:max-w-md h-auto"
+                        />
+                      ) : getFileTypeFromUrl(msg.mediaUrl) === "video" ? (
+                        <video
+                          src={msg.mediaUrl}
+                          width="400"
+                          height="400"
+                          controls
+                          autoPlay
+                          muted
+                          playsInline
+                        />
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div
+                      className={`bg-${
+                        msg.senderId === currentUser?.id
+                          ? "[#f07055] text-white"
+                          : "gray-100"
+                      } p-3 rounded-md max-w-sm md:max-w-md lg:max-w-lg 2xl:max-w-2xl`}>
+                      {msg.content}
+                    </div>
+                  )}
                 </div>
                 {msg.senderId === currentUser?.id && (
                   <div className={`flex justify-end mb-6`}>
@@ -372,10 +451,44 @@ const ChatComponent = () => {
               className="mr-2"
               onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
             />
+            <div onClick={handleFileClick} className="mx-4 cursor-pointer">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+                className="size-8 text-orange-700">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13"
+                />
+              </svg>
+            </div>
+            <input
+              type="file"
+              ref={inputMediaRef}
+              accept="image/*,video/*"
+              onChange={handleFileChange}
+              className="hidden"
+            />
             <Button
               onClick={handleSendMessage}
               className="bg-[#f07055] text-white">
-              Send
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke-width="1.5"
+                stroke="currentColor"
+                className="size-6">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5"
+                />
+              </svg>
             </Button>
           </div>
         </Card>

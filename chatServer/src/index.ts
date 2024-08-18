@@ -1,4 +1,6 @@
-import express from "express";
+import express, { Request, Response } from "express";
+import upload from "./multer.config";
+import uploadOnCloudinary from "./cloudinary.config";
 import http from "http";
 import { Server } from "socket.io";
 import bodyParser from "body-parser";
@@ -25,6 +27,17 @@ const io = new Server(server, {
 
 app.use(cors());
 app.use(bodyParser.json());
+app.use(express.json());
+app.use(
+  (
+    err: Error,
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    res.status(500).json({ message: err.message });
+  }
+);
 
 const pool = new Pool({
   connectionString:
@@ -50,6 +63,54 @@ const updateUserStatus = async (userId: number, status: any) => {
   }
 };
 
+app.post(
+  "/upload-message",
+  upload.single("file"),
+  async (req: Request, res: Response) => {
+    try {
+      const { senderId, recipientId, content, conversationId } = req.body;
+      const file = req.file;
+
+      if (!senderId || !recipientId || !conversationId) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      if (file) {
+        const localFilePath = file.path;
+        const cloudinaryUrl = await uploadOnCloudinary(localFilePath);
+        const newMessage: NewMessage = {
+          senderId,
+          recipientId,
+          content,
+          conversationId,
+          mediaUrl: cloudinaryUrl,
+        };
+        const messageResult = await db
+          .insert(messages)
+          .values(newMessage)
+          .returning();
+
+        return res.status(200).json({ message: "file added successfully" });
+      }
+
+      return res.status(200).json({ message: "Message sent without file" });
+    } catch (e) {
+      console.error("Error in /upload-message:", e);
+      if (e instanceof Error) {
+        res.status(500).json({
+          error: "Internal server error",
+          message: e.message,
+          stack: e.stack,
+        });
+      } else {
+        res.status(500).json({
+          error: "Internal server error",
+          message: "An unknown error occurred",
+        });
+      }
+    }
+  }
+);
 app.post("/signup", async (req, res) => {
   const { username, email, googleId, imageUrl } = req.body;
   try {

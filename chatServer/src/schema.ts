@@ -46,6 +46,7 @@ export const messages = pgTable("messages", {
     .notNull()
     .references(() => conversation.id),
   status: messageStatusEnum("status").default("sent").notNull(),
+  mediaUrl: text("mediaUrl"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -54,16 +55,6 @@ export const conversation = pgTable("conversation", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   user1Id: integer("user1id").references(() => users.id),
   user2Id: integer("user2id").references(() => users.id),
-});
-
-export const mediaUploads = pgTable("media_uploads", {
-  id: serial("id").primaryKey(),
-  messageId: integer("message_id")
-    .references(() => messages.id)
-    .notNull(),
-  type: mediaTypeEnum("type").notNull(),
-  url: text("url").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Types for Users
@@ -75,8 +66,6 @@ export type Message = InferSelectModel<typeof messages>;
 export type NewMessage = InferInsertModel<typeof messages>;
 
 // Types for MediaUploads
-export type MediaUpload = InferSelectModel<typeof mediaUploads>;
-export type NewMediaUpload = InferInsertModel<typeof mediaUploads>;
 
 export type conversation = InferSelectModel<typeof conversation>;
 export type NewConversation = InferInsertModel<typeof conversation>;
